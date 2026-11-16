@@ -31,7 +31,6 @@ from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError, a
 # --- Configuración -----------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 URL_LOGIN = "https://www.dgii.gov.do/OFV/login.aspx"
-DIR_CAPTURAS = BASE_DIR / "capturas"
 
 # Selectores (con alternativas por si la DGII cambia ligeramente los IDs)
 SELECTORES_USUARIO = [
@@ -65,17 +64,6 @@ class ErrorLoginDGII(Exception):
 # --- Utilidades --------------------------------------------------------------
 def log(mensaje: str) -> None:
     print(f"[{datetime.now():%H:%M:%S}] {mensaje}", flush=True)
-
-
-async def captura(page: Page, nombre: str) -> None:
-    """Guarda un screenshot en capturas/ para diagnóstico."""
-    DIR_CAPTURAS.mkdir(exist_ok=True)
-    ruta = DIR_CAPTURAS / f"{datetime.now():%Y%m%d_%H%M%S}_{nombre}.png"
-    try:
-        await page.screenshot(path=str(ruta), full_page=True)
-        log(f"📸 Captura guardada: {ruta.relative_to(BASE_DIR)}")
-    except PlaywrightError as e:
-        log(f"⚠️  No se pudo guardar la captura '{nombre}': {e}")
 
 
 def cargar_configuracion() -> tuple[str, str, Path]:
@@ -201,7 +189,6 @@ async def login(headless: bool) -> int:
             # ---------------- Paso 0: abrir la página ----------------
             log(f"Abriendo {URL_LOGIN} ...")
             await page.goto(URL_LOGIN, wait_until="domcontentloaded")
-            await captura(page, "01_pagina_login")
 
             # ---------------- Paso 1: Usuario + Clave ----------------
             campo_usuario = await primer_selector_visible(page, SELECTORES_USUARIO, "Usuario")
@@ -216,13 +203,11 @@ async def login(headless: bool) -> int:
             # Algunas versiones de la OFV muestran el campo Tarjeta desde el inicio.
             tarjeta_ya_visible = await campo_tarjeta.count() and await campo_tarjeta.is_visible()
             if not tarjeta_ya_visible:
-                await captura(page, "02_credenciales")
                 log("Haciendo clic en 'Entrar' (paso 1)...")
                 await boton.click()
                 try:
                     await campo_tarjeta.wait_for(state="visible", timeout=TIMEOUT_MS)
                 except PlaywrightTimeoutError:
-                    await captura(page, "error_sin_campo_tarjeta")
                     msg = await detectar_error_en_pagina(page)
                     raise ErrorLoginDGII(
                         "No apareció el campo Tarjeta tras el paso 1. "
@@ -230,7 +215,6 @@ async def login(headless: bool) -> int:
                     )
 
             # ---------------- Paso 2: Tarjeta de coordenadas ----------------
-            await captura(page, "03_campo_tarjeta")
             texto = await leer_texto_tooltip(page)
             log(f"Texto del tooltip: '{texto}'")
             posicion = extraer_posicion(texto)
@@ -238,7 +222,6 @@ async def login(headless: bool) -> int:
             log(f"Posición solicitada: {posicion} → código encontrado (oculto: {'*' * len(codigo)}).")
 
             await campo_tarjeta.fill(codigo)
-            await captura(page, "04_tarjeta_llena")
 
             log("Enviando formulario...")
             url_antes = page.url
@@ -250,7 +233,6 @@ async def login(headless: bool) -> int:
                 await page.wait_for_load_state("networkidle", timeout=TIMEOUT_MS)
             except PlaywrightTimeoutError:
                 log("⚠️  La página tardó en estabilizarse; se continúa con la verificación.")
-            await captura(page, "05_resultado")
 
             # ---------------- Verificación ----------------
             error = await detectar_error_en_pagina(page)
@@ -271,7 +253,6 @@ async def login(headless: bool) -> int:
             return 0
 
         except PlaywrightTimeoutError as e:
-            await captura(page, "error_timeout")
             raise ErrorLoginDGII(f"Tiempo de espera agotado: {e}") from e
         finally:
             await navegador.close()
