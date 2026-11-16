@@ -6,7 +6,8 @@ Flujo:
   1. Llena Usuario + Clave y hace clic en "Entrar" (BtnAceptar).
   2. Espera el campo "Tarjeta" (#ctl00_ContentPlaceHolder1_txtpasscodeTarjetaToken).
   3. Lee su atributo data-original-title ("Favor introducir el código número: 19 de su tarjeta"),
-     extrae la posición, busca el código en tarjeta_dgii.json, lo escribe y envía el formulario.
+     extrae la posición, busca el código en tarjeta_dgii.json, lo escribe y hace clic en
+     "Continuar" (BtnAceptarTarjetaToken).
 
 Credenciales: variables de entorno o archivo .env (NUNCA en el código).
 Uso:
@@ -47,6 +48,7 @@ SELECTORES_CLAVE = [
     "input[type='password']",
 ]
 XPATH_BOTON_ENTRAR = '//*[@id="ctl00_ContentPlaceHolder1_BtnAceptar"]'
+XPATH_BOTON_CONTINUAR = '//*[@id="ctl00_ContentPlaceHolder1_BtnAceptarTarjetaToken"]'
 SELECTOR_TARJETA = "#ctl00_ContentPlaceHolder1_txtpasscodeTarjetaToken"
 
 # Regex: "Favor introducir el código número: 19 de su tarjeta"
@@ -106,7 +108,8 @@ def cargar_tarjeta(ruta: Path) -> dict[str, str]:
     tarjeta = {str(int(k)): str(v).strip() for k, v in datos.items() if str(k).strip().isdigit()}
 
     # Aviso de permisos inseguros (solo en sistemas POSIX)
-    if os.name == "posix" and (ruta.stat().st_mode & 0o077):
+    es_posix = os.name == "posix"
+    if es_posix and (ruta.stat().st_mode & 0o077):
         log(f"⚠️  Permisos inseguros en {ruta.name}. Recomendado: chmod 600 {ruta.name}")
     return tarjeta
 
@@ -145,7 +148,7 @@ async def primer_selector_visible(page: Page, selectores: list[str], descripcion
 async def leer_texto_tooltip(page: Page) -> str:
     """Lee data-original-title del campo Tarjeta (con hover y alternativas por si viene vacío)."""
     campo = page.locator(SELECTOR_TARJETA)
-    for intento in range(10):
+    for _ in range(10):
         texto = await campo.get_attribute("data-original-title")
         if not texto:
             texto = await campo.get_attribute("title")
@@ -239,7 +242,10 @@ async def login(headless: bool) -> int:
 
             log("Enviando formulario...")
             url_antes = page.url
-            await boton.click()
+            boton_continuar = page.locator(f"xpath={XPATH_BOTON_CONTINUAR}")
+            if not await boton_continuar.count():
+                boton_continuar = boton
+            await boton_continuar.click()
             try:
                 await page.wait_for_load_state("networkidle", timeout=TIMEOUT_MS)
             except PlaywrightTimeoutError:
